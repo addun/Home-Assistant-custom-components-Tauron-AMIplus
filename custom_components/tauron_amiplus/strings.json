@@ -31,8 +31,7 @@
           "show_configurable_sensors": "Enable calculating energy usage/generation for a configurable data period",
           "show_configurable_sensors_date": "Start date for configurable data period",
           "store_statistics": "Store hourly statistics (for Energy dashboard)",
-          "show_cost_sensors": "Enable calculating energy cost (using a price sensor)",
-          "cost_price_entity": "Entity providing the current energy price"
+          "show_cost_sensors": "Enable calculating energy cost"
         }
       },
       "reauth_confirm": {
@@ -43,8 +42,7 @@
     "error": {
       "server_no_connection": "Cannot connect to TAURON eLicznik server: {error_info}",
       "invalid_meter_id": "Invalid energy meter ID",
-      "missing_configurable_start_date": "Missing start date for configurable sensors",
-      "missing_cost_entity": "Missing price entity for cost sensors"
+      "missing_configurable_start_date": "Missing start date for configurable sensors"
     }
   },
   "options": {
@@ -60,14 +58,12 @@
           "show_configurable_sensors": "Enable calculating energy usage/generation for a configurable data period",
           "show_configurable_sensors_date": "Start date for configurable data period",
           "store_statistics": "Store hourly statistics (for Energy dashboard)",
-          "show_cost_sensors": "Enable calculating energy cost (using a price sensor)",
-          "cost_price_entity": "Entity providing the current energy price"
+          "show_cost_sensors": "Enable calculating energy cost"
         }
       }
     },
     "error": {
-      "missing_configurable_start_date": "Missing start date for configurable sensors",
-      "missing_cost_entity": "Missing price entity for cost sensors"
+      "missing_configurable_start_date": "Missing start date for configurable sensors"
     }
   },
   "services": {
@@ -87,7 +83,7 @@
     },
     "force_price_recalculation": {
       "name": "Force price recalculation",
-      "description": "Forces cost statistics to be recalculated using the current price sensor value.",
+      "description": "Forces cost statistics to be recalculated using the current energy prices.",
       "fields": {
         "device_id": {
           "name": "Target device",

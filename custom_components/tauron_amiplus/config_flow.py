@@ -11,7 +11,6 @@ from homeassistant.helpers.selector import selector
 
 from .connector import TauronAmiplusConnector
 from .const import (
-    CONF_COST_ENTITY,
     CONF_METER_ID,
     CONF_METER_NAME,
     CONF_SHOW_12_MONTHS,
@@ -151,12 +150,6 @@ class TauronAmiplusFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             ):
                 errors[CONF_SHOW_CONFIGURABLE_DATE] = "missing_configurable_start_date"
 
-            if (
-                user_input.get(CONF_SHOW_COST, False) is True
-                and not user_input.get(CONF_COST_ENTITY, None)
-            ):
-                errors[CONF_COST_ENTITY] = "missing_cost_entity"
-
             if len(errors) == 0 and len(selected_meter_name) == 1:
                 data = {
                     CONF_USERNAME: self._username,
@@ -183,7 +176,6 @@ class TauronAmiplusFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                     ),
                     CONF_STORE_STATISTICS: user_input.get(CONF_STORE_STATISTICS, True),
                     CONF_SHOW_COST: user_input.get(CONF_SHOW_COST, False),
-                    CONF_COST_ENTITY: user_input.get(CONF_COST_ENTITY, None),
                 }
 
                 """Finish config flow"""
@@ -289,10 +281,6 @@ class TauronAmiplusFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_SHOW_COST,
                     default=user_input.get(CONF_SHOW_COST, vol.UNDEFINED),
                 ): bool,
-                vol.Optional(
-                    CONF_COST_ENTITY,
-                    default=user_input.get(CONF_COST_ENTITY, vol.UNDEFINED),
-                ): selector({"entity": {"domain": "sensor"}}),
             }
         )
         return data_schema
@@ -335,11 +323,6 @@ class TauronAmiplusOptionsFlowHandler(config_entries.OptionsFlow):
                 and user_input.get(CONF_SHOW_CONFIGURABLE_DATE, None) is None
             ):
                 errors[CONF_SHOW_CONFIGURABLE_DATE] = "missing_configurable_start_date"
-            if (
-                user_input.get(CONF_SHOW_COST, False) is True
-                and not user_input.get(CONF_COST_ENTITY, None)
-            ):
-                errors[CONF_COST_ENTITY] = "missing_cost_entity"
             if len(errors) == 0:
                 self.options.update(user_input)
                 output = await self._update_options()
@@ -384,10 +367,6 @@ class TauronAmiplusOptionsFlowHandler(config_entries.OptionsFlow):
                         CONF_SHOW_COST,
                         default=self.get_option(CONF_SHOW_COST, False),
                     ): bool,
-                    vol.Optional(
-                        CONF_COST_ENTITY,
-                        default=self.get_option(CONF_COST_ENTITY, vol.UNDEFINED),
-                    ): selector({"entity": {"domain": "sensor"}}),
                 }
             ),
             errors=errors,

@@ -10,9 +10,10 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util.dt import as_utc, get_time_zone, utc_from_timestamp
 
 from .connector import TauronAmiplusConnector, TauronAmiplusRawData
-from .const import (CONF_COST_ENTITY, CONF_METER_ID, CONF_METER_NAME, CONF_SHOW_BALANCED, CONF_SHOW_COST,
-                    CONF_SHOW_GENERATION, CONST_BALANCED, CONST_CONSUMPTION, CONST_COST, CONST_GENERATION,
+from .const import (CONF_METER_ID, CONF_METER_NAME, CONF_SHOW_BALANCED, CONF_SHOW_COST, CONF_SHOW_GENERATION,
+                    CONST_BALANCED, CONST_CONSUMPTION, CONST_COST, CONST_GENERATION,
                     DEFAULT_NAME, STATISTICS_DOMAIN)
+from .cost import CostCalculationError, TauronAmiplusCostCalculator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -21,7 +22,8 @@ class TauronAmiplusStatisticsUpdater:
 
     def __init__(self, hass: HomeAssistant, connector: TauronAmiplusConnector, meter_id: str, meter_name: str,
                  show_generation: bool, show_balanced: bool, show_cost: bool = False,
-                 cost_entity_id: str | None = None) -> None:
+                 cost_prices: dict[str, float | None] | None = None,
+                 cost_fixed_monthly_fee: float = 0.0) -> None:
         self.hass = hass
         self.connector = connector
         self.meter_id = meter_id
@@ -29,7 +31,9 @@ class TauronAmiplusStatisticsUpdater:
         self.show_generation = show_generation
         self.show_balanced = show_balanced
         self.show_cost = show_cost
-        self.cost_entity_id = cost_entity_id
+        self.cost_prices = cost_prices or {}
+        self.cost_fixed_monthly_fee = cost_fixed_monthly_fee
+        self._cost_calculator: TauronAmiplusCostCalculator | None = None
 
     @staticmethod
     async def manually_update(hass, start_date: datetime.date, entry) -> None:
@@ -41,12 +45,12 @@ class TauronAmiplusStatisticsUpdater:
         show_generation = entry.options.get(CONF_SHOW_GENERATION, False)
         show_balanced = entry.options.get(CONF_SHOW_BALANCED, False)
         show_cost = entry.options.get(CONF_SHOW_COST, False)
-        cost_entity_id = entry.options.get(CONF_COST_ENTITY, None)
+        coordinator = entry.runtime_data.coordinator
 
         connector = TauronAmiplusConnector(username, password, meter_id, hass=hass, config_entry_id=entry.entry_id, show_generation=show_generation,
                                            show_balanced=show_balanced)
         statistics_updater = TauronAmiplusStatisticsUpdater(hass, connector, meter_id, meter_name, show_generation, show_balanced,
-                                                            show_cost, cost_entity_id)
+                                                            show_cost, coordinator.cost_prices, coordinator.cost_fixed_monthly_fee)
 
         data = await connector.get_raw_data()
         start_date = datetime.datetime.combine(start_date,
@@ -59,7 +63,7 @@ class TauronAmiplusStatisticsUpdater:
             return
         raw_data = {CONST_CONSUMPTION: last_data.consumption.json_last_30_days_hourly["data"]["allData"]}
         zones = last_data.consumption.json_last_30_days_hourly["data"]["zonesName"]
-        self._cost_price = self.get_cost_price() if self.show_cost else None
+        self._cost_calculator = self.get_cost_calculator(zones)
         if self.show_generation or self.show_balanced:
             if last_data.generation is None or last_data.generation.json_last_30_days_hourly is None:
                 return
@@ -87,8 +91,13 @@ class TauronAmiplusStatisticsUpdater:
             raw_data[f"{CONST_BALANCED}_{CONST_CONSUMPTION}"] = balanced_consumption
             raw_data[f"{CONST_BALANCED}_{CONST_GENERATION}"] = balanced_generation
 
-        if self.show_cost and self._cost_price is not None:
-            raw_data[CONST_COST] = self.prepare_cost_raw_data(raw_data[CONST_CONSUMPTION], self._cost_price)
+        if self._cost_calculator is not None:
+            try:
+                raw_data[CONST_COST] = self._cost_calculator.calculate(
+                    raw_data[CONST_CONSUMPTION], self.get_time, self.get_cost_cutoff(all_stat_ids, start_date))
+            except CostCalculationError as e:
+                _LOGGER.warning(f"[{self.meter_id}]: Cost calculation failed, skipping cost statistics: {e}")
+                all_stat_ids = {k: v for k, v in all_stat_ids.items() if v["data_source"] != CONST_COST}
 
         for s, v in all_stat_ids.items():
             if v["data_source"] == CONST_COST and start_date is None:
@@ -142,7 +151,7 @@ class TauronAmiplusStatisticsUpdater:
                 "data": f"{CONST_BALANCED}_{CONST_GENERATION}",
                 "zone": None
             })
-        if self.show_cost and self._cost_price is not None:
+        if self._cost_calculator is not None:
             suffixes.append({
                 "id": CONST_COST,
                 "name": CONST_COST,
@@ -234,30 +243,26 @@ class TauronAmiplusStatisticsUpdater:
 
         return balanced_consumption, balanced_generation
 
-    def get_cost_price(self) -> float | None:
-        if self.cost_entity_id is None:
+    def get_cost_calculator(self, zones) -> TauronAmiplusCostCalculator | None:
+        prices = {zone: price for zone, price in self.cost_prices.items() if price is not None}
+        if not self.show_cost or not prices:
             return None
-        state = self.hass.states.get(self.cost_entity_id)
-        if state is None or state.state in (None, "unknown", "unavailable"):
-            self.log(f"Cost price entity {self.cost_entity_id} is unavailable, skipping cost statistics")
+        missing = [f"{zone} ({name})" for zone, name in zones.items() if zone not in prices]
+        if missing:
+            _LOGGER.warning(f"[{self.meter_id}]: Missing price for tariff zone: {', '.join(missing)}, "
+                            f"skipping cost statistics")
             return None
-        try:
-            return float(state.state)
-        except ValueError:
-            self.log(f"Cost price entity {self.cost_entity_id} has a non-numeric state, skipping cost statistics")
-            return None
+        return TauronAmiplusCostCalculator(prices, self.cost_fixed_monthly_fee)
 
     @staticmethod
-    def prepare_cost_raw_data(consumption_data, price: float) -> list:
-        return [
-            {
-                "EC": f'{round(float(entry["EC"]) * price, 4)}',
-                "Date": entry["Date"],
-                "Hour": entry["Hour"],
-                "Zone": entry["Zone"],
-            }
-            for entry in consumption_data
-        ]
+    def get_cost_cutoff(all_stat_ids, start_date) -> datetime.datetime | None:
+        """Cost hours that are already stored are not rewritten, so there is no point in rendering them."""
+        if start_date is not None:
+            return None
+        ends = [v["last_stats_end"] for v in all_stat_ids.values() if v["data_source"] == CONST_COST]
+        if not ends or any(end is None for end in ends):
+            return None
+        return min(ends)
 
     async def update_stats(self, statistic_id, statistic_name, initial_sum, last_stats_time, zone_id, raw_data,
                            data_source=CONST_CONSUMPTION):

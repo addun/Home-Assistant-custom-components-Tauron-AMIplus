@@ -30,7 +30,6 @@ class TauronAmiplusUpdateCoordinator(DataUpdateCoordinator[TauronAmiplusRawData]
             show_configurable_date: datetime.date | None = None,
             store_statistics: bool = False,
             show_cost: bool = False,
-            cost_entity_id: str | None = None,
     ):
         super().__init__(hass, _LOGGER, name=DOMAIN, update_interval=DEFAULT_UPDATE_INTERVAL,
                          update_method=self.update_method)
@@ -46,7 +45,8 @@ class TauronAmiplusUpdateCoordinator(DataUpdateCoordinator[TauronAmiplusRawData]
         self.show_configurable_date = show_configurable_date
         self.store_statistics = store_statistics
         self.show_cost = show_cost
-        self.cost_entity_id = cost_entity_id
+        self.cost_prices: dict[str, float | None] = {}
+        self.cost_fixed_monthly_fee: float = 0.0
 
     async def update_method(self) -> TauronAmiplusRawData:
         self.log("Starting data update")
@@ -61,7 +61,8 @@ class TauronAmiplusUpdateCoordinator(DataUpdateCoordinator[TauronAmiplusRawData]
     async def generate_statistics(self, data):
         statistics_updater = TauronAmiplusStatisticsUpdater(self.hass, self.connector, self.meter_id, self.meter_name,
                                                             self.show_generation, self.show_balanced,
-                                                            self.show_cost, self.cost_entity_id)
+                                                            self.show_cost, self.cost_prices,
+                                                            self.cost_fixed_monthly_fee)
         await statistics_updater.update_all(data)
 
     async def _update(self) -> TauronAmiplusRawData:

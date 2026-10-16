@@ -19,7 +19,7 @@ download_statistics:
 
 force_price_recalculation:
   description: >
-    Forces cost statistics to be recalculated using the current price sensor value.
+    Forces cost statistics to be recalculated using the current energy prices.
     Only affects meters with cost statistics enabled.
   fields:
     device_id:

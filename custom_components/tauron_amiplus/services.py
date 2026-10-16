@@ -67,7 +67,10 @@ class ForcePriceRecalculationService:
         [config_entry_id, *_] = device.config_entries
         config_entry: TauronAmiplusConfigEntry = self._hass.config_entries.async_get_entry(config_entry_id)
         if not config_entry.options.get(CONF_SHOW_COST, False):
-            _LOGGER.error("Cannot force price recalculation, cost statistics are not enabled for this meter")
+            _LOGGER.error("Cannot force price recalculation, cost calculation is not enabled for this meter")
+            return
+        if not any(p is not None for p in config_entry.runtime_data.coordinator.cost_prices.values()):
+            _LOGGER.error("Cannot force price recalculation, no energy prices are set for this meter")
             return
         if start_date is None:
             now = datetime.datetime.now()
